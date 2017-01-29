@@ -34,12 +34,11 @@ data Operand = Imm  Imm       {- immediate -}
 {- Condition Codes -}
 data Cnd = Eq | Neq | Gt | Ge | Lt | Le
 
-data Opcode = Movq | Pushq | Popq
-            | Leaq
-            | Incq | Decq | Negq | Notq
-            | Addq | Subq | Imulq | Xorq | Orq | Andq
-            | Shlq | Sarq | Shrq
-            | Jmp | J Cnd
+data Opcode = Movq | Pushq | Popq  | Leaq
+            | Incq  | Decq | Negq  | Notq
+            | Addq  | Subq | Imulq | Xorq | Orq | Andq
+            | Shlq  | Sarq | Shrq
+            | Jmp   | J Cnd
             | Cmpq  | Set Cnd
             | Callq | Retq
 
