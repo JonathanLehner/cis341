@@ -1,3 +1,6 @@
 .stack-work
 *.ml
 *.mli
+_build
+*.native
+.DS_store
