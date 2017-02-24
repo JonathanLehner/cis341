@@ -1,5 +1,4 @@
 .stack-work
-*.ml
 *.mli
 _build
 *.native
