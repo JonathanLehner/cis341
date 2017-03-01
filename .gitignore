@@ -2,4 +2,5 @@
 *.mli
 _build
 *.native
+*.byte
 .DS_store

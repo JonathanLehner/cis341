@@ -87,7 +87,6 @@ let another_int : int = 3 * 14
  *  let an_error : int = 3 + 1.0
  *)
 
-
 (*
  * 'let' expressions can be nested.  The scope of a let-bound variable is 
  * delimited by the 'in' keyword.
@@ -308,14 +307,13 @@ let quadrupled_z_again : int = twice double z  (* pass double to twice *)
  * makes the first case of part1_tests "Problem 1" succeed. See the 
  * gradedtests.ml file.  
  *)   
-let pieces : int = -1
+let pieces : int = 8
 
 (*
  * Implement a function cube that takes an int value and produces its cube.
  *)
 let cube : int -> int = 
-fun _ -> failwith "cube unimplemented"   
-
+fun n -> n * n * n
 
 (* Problem 1-2 *)
 (* Write a function "cents_of" that takes 
@@ -326,8 +324,7 @@ fun _ -> failwith "cube unimplemented"
  * (all numbers non-negative)
  * and computes the total value of the coins in cents: *)
 let cents_of : int -> int -> int -> int -> int = 
-  fun _ -> failwith "cents_of unimplemented"
-
+  fun q d n p -> q * 25 + d * 10 + n * 5 + p
 
 (* Problem 1-3 *)
 (* 
@@ -478,8 +475,8 @@ let pair_up (x:'a) : ('a * 'a) = (x, x)
  * Complete the definition of third_of_three; be sure to give it 
  * the correct type signature (we will grade that part manually):
  *)
-let third_of_three _ = failwith "third_of_three unimplemented"
-
+let third_of_three (x : 'a * 'b * 'c) : 'c =
+  match x with (_, _, c) -> c
 
 (*
  * Problem 2-2
@@ -491,9 +488,7 @@ let third_of_three _ = failwith "third_of_three unimplemented"
  *)
 
 let compose_pair (p:(('b -> 'c) * ('a -> 'b))) : 'a -> 'c =
-failwith "compose_pair unimplemented"
-
-
+  match p with (g, f) -> fun (x : 'a): 'c -> g (f x)
 
 
 (******************************************************************************)
@@ -665,8 +660,10 @@ let rec mylist_to_list (l:'a mylist) : 'a list =
  * the inverse of the mylist_to_list function given above.
  *)
 let rec list_to_mylist (l:'a list) : 'a mylist =
-failwith "list_to_mylist unimplemented"
-
+  begin match l with
+  | []    -> Nil
+  | x::xs -> Cons(x, list_to_mylist xs)
+  end
 
 (*
  * Problem 3-2
@@ -683,7 +680,10 @@ failwith "list_to_mylist unimplemented"
  * ([1;2] @ [3]).
  *) 
 let rec append (l1:'a list) (l2:'a list) : 'a list =
-failwith "append unimplemented"
+  begin match l1 with
+  | []    -> l2
+  | x::xs -> x :: (append xs l2)
+  end
   
 (*
  * Problem 3-3
@@ -693,7 +693,10 @@ failwith "append unimplemented"
  * the library function.
  *)
 let rec rev (l:'a list) : 'a list =
-failwith "rev unimplemented"
+  begin match l with
+  | []    -> []
+  | x::xs -> append (rev xs) [x]
+  end
 
 (*
  * Problem 3-4
@@ -707,8 +710,12 @@ failwith "rev unimplemented"
  * a tail recursive function to a simple loop.
  *)
 let rev_t (l: 'a list) : 'a list =
-failwith "rev_t unimplemented"
-
+  let rec f (acc: 'a list) (l: 'a list): 'a list =
+    begin match l with
+    | []    -> acc
+    | x::xs -> f (x::acc) xs
+    end
+  in f [] l
 
 (*
  * Problem 3-5
@@ -725,8 +732,10 @@ failwith "rev_t unimplemented"
  * depending on whether t evaluates to true or false.
  *)
 let rec insert (x:'a) (l:'a list) : 'a list =
-failwith "insert unimplemented"
-  
+  begin match l with
+  | []    -> [x]
+  | y::ys -> if (x < y) then x::y::ys else (if x = y then y::ys else y::(insert x ys))
+  end
   
 (*
  * Problem 3-6
@@ -737,12 +746,11 @@ failwith "insert unimplemented"
  * insert function that you just defined.
  *)
 let rec union (l1:'a list) (l2:'a list) : 'a list =
- failwith "union unimplemented"
+  begin match l1 with
+  | []    -> l2
+  | x::xs -> union xs (insert x l2)
+  end
 
-
-            
-                              
-                                                  
 (******************************************************************************)
 (*                                                                            *)
 (* PART 3: Expression Trees and Interpreters                                  *)
@@ -828,8 +836,12 @@ let e3 : exp = Mult(Var "y", Mult(e2, Neg e2))     (* "y * ((x+1) * -(x+1))" *)
  * Hint: you probably want to use the 'union' function you wrote for Problem 3-5.
  *)
 let rec vars_of (e:exp) : string list =
-failwith "vars_of unimplemented"
-
+  begin match e with
+  | Var s                       -> [s]
+  | Const _                     -> []
+  | Add  (e1,e2) | Mult (e1,e2) -> union (vars_of e1) (vars_of e2)
+  | Neg e                       -> vars_of e
+  end
 
 (*
  * How should we interpret (i.e. give meaning to) an expression?
@@ -891,9 +903,10 @@ let ctxt2 : ctxt = [("x", 2l); ("y", 7l)]  (* maps "x" to 2l, "y" to 7l *)
  * raise the Not_found exception 
  *)
 let rec lookup (x:string) (c:ctxt) : int32 =
-failwith "unimplemented"
-
-
+  begin match c with
+  | []        -> raise Not_found
+  | (y,i)::ys -> if (x = y) then i else lookup x ys
+  end
 
 (* 
  * Problem 4-3
@@ -921,8 +934,13 @@ failwith "unimplemented"
  *)        
 
 let rec interpret (c:ctxt) (e:exp) : int32 =
-  failwith "unimplemented"
-
+  begin match e with
+  | Var s        -> lookup s c
+  | Const i      -> i
+  | Add  (e1,e2) -> Int32.add (interpret c e1) (interpret c e2)
+  | Mult (e1,e2) -> Int32.mul (interpret c e1) (interpret c e2)
+  | Neg e        -> Int32.neg (interpret c e)
+  end
 
 (*
  * Problem 4-4
@@ -963,8 +981,28 @@ let rec interpret (c:ctxt) (e:exp) : int32 =
  *)   
 
 let rec optimize (e:exp) : exp =
-failwith "optimize unimplemented"  
-  
+  begin match e with
+  | Add  (e1, e2) -> begin match (optimize e1, optimize e2) with
+                     | (Const a, Const b) -> Const (Int32.add a b)                 
+                     | (Const 0l, e)      -> e
+                     | (e, Const 0l)      -> e
+                     | (a,b)              -> Add (a,b)
+                     end
+  | Mult (e1, e2) -> begin match (optimize e1, optimize e2) with
+                     | (Const a, Const b) -> Const (Int32.mul a b)                 
+                     | (Const 1l, e)      -> e
+                     | (e, Const 1l)      -> e
+                     | (Const 0l, _)      -> Const 0l
+                     | (_, Const 0l)      -> Const 0l
+                     | (a,b)              -> Mult (a,b)
+                     end
+  | Neg e         -> begin match (optimize e) with
+                     | (Const a) -> Const (Int32.neg a)
+                     | (Neg e1)  -> e1
+                     | e -> e
+                     end
+  | e -> e
+  end
 
 (*
  * The interpreter for the expression language above is simple, but
@@ -1084,7 +1122,6 @@ let run (c:ctxt) (p:program) : int32 = answer (execute c [] p)
 let p1 = [IPushC 2l; IPushC 3l; IMul]
 let ans1 = run [] p1
 
-
 (*
  * Problem 5
  *
@@ -1110,9 +1147,13 @@ let ans1 = run [] p1
  *    function to glue together two programs.
  *)
 let rec compile (e:exp) : program =
-failwith "compile unimplemented"  
-
-
+  begin match e with
+  | Var s        -> [IPushV s]
+  | Const i      -> [IPushC i]
+  | Add  (e1,e2) -> compile e1 @ compile e2 @ [IAdd]
+  | Mult (e1,e2) -> compile e1 @ compile e2 @ [IMul]
+  | Neg e        -> compile e  @ [INeg]
+  end
 
 (************)
 (* Epilogue *)
