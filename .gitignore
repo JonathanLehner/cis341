@@ -4,3 +4,4 @@ _build
 *.native
 *.byte
 .DS_store
+.DS_Store
