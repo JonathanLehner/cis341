@@ -136,6 +136,13 @@ let interp_cnd {fo; fs; fz} : cnd -> bool = function
   | Lt  -> not fz && fs <> fo (* can leave out not fz if there is never a negative zero *)
   | Le  -> fz || fs <> fo
 
+(* Set condition flags given a result *)
+let set_cnd (f: flags)(result: Int64_overflow.t): unit =
+  let open Int64_overflow in
+  f.fo <- result.overflow;
+  f.fs <- result.value < 0L;
+  f.fz <- result.value = 0L
+
 (* Maps an X86lite address into Some OCaml array index,
    or None if the address is not within the legal address space. *)
 let map_addr (addr:quad) : int option =
@@ -150,6 +157,23 @@ let lookup (m: mem) (addr: quad): int64 =
   | Some i -> int64_of_sbytes (to_list (sub m i 8))
   | None   -> invalid_arg "lookup: bad addr"
 
+(* lookup the next instruction at the RIP and increment the RIP by 4 *)
+let lookup_ins (m: mach): ins =
+  let rip = m.regs.(rind Rip) in
+  match map_addr rip with
+  | Some a -> (match m.mem.(a) with
+               | InsB0 i -> m.regs.(rind Rip) <- Int64.add rip 4L; i
+               | _       -> invalid_arg "lookup_ins: bad instruction")
+  | None   -> invalid_arg "lookup_ins: bad addr in RIP"
+  
+(* store an int64 value in the specified memory location *)
+let store_mem (m: mem) (addr: quad) (v: int64): unit =
+  let open Array in
+  match map_addr addr with
+  | Some i -> blit (of_list (sbytes_of_int64 v)) 0 m i 8
+  | None   -> invalid_arg "store_mem: bad addr"
+
+(* return the value of an operand as an int64 *)
 let value (m: mach) : operand -> int64 = function
   | Imm (Lit i)     -> i
   | Reg r           -> m.regs.(rind r)
@@ -157,7 +181,16 @@ let value (m: mach) : operand -> int64 = function
   | Ind2 r          -> lookup m.mem (m.regs.(rind r))
   | Ind3 (Lit i, r) -> lookup m.mem (Int64.add m.regs.(rind r) i)
   | Imm (Lbl l) | Ind1 (Lbl l) | Ind3 (Lbl l, _) -> invalid_arg "value: labels should have been resolved"
-  
+
+(* store an int64 value into the location specified by an operand *)
+let store (m: mach) (v: int64) : operand -> unit = function
+  | Imm (Lit i)     -> store_mem m.mem i v
+  | Reg r           -> m.regs.(rind r) <- v
+  | Ind1 (Lit i)    -> store_mem m.mem (lookup m.mem i) v
+  | Ind2 r          -> store_mem m.mem (lookup m.mem (m.regs.(rind r))) v
+  | Ind3 (Lit i, r) -> store_mem m.mem (lookup m.mem (Int64.add m.regs.(rind r) i)) v
+  | Imm (Lbl l) | Ind1 (Lbl l) | Ind3 (Lbl l, _) -> invalid_arg "value: labels should have been resolved"
+
 (* Simulates one step of the machine:
     - fetch the instruction at %rip
     - compute the source and/or destination information from the operands
@@ -166,7 +199,10 @@ let value (m: mach) : operand -> int64 = function
     - set the condition flags
 *)
 let step (m:mach) : unit =
-failwith "step unimplemented"
+  let open Int64_overflow in
+  match lookup_ins m with
+  | (Negq, [o]) -> let r = neg (value m o) in set_cnd m.flags r; store m r.value o
+  | _           -> failwith "step unimplemented"
 
 (* Runs the machine until the rip register reaches a designated
    memory address. *)
