@@ -200,9 +200,16 @@ let store (m: mach) (v: int64) : operand -> unit = function
 *)
 let step (m:mach) : unit =
   let open Int64_overflow in
+  let unary  f d   = (let r = f (value m d)             in set_cnd m.flags r; store m r.value d) in
+  let binary f s d = (let r = f (value m d) (value m s) in set_cnd m.flags r; store m r.value d) in
   match lookup_ins m with
-  | (Negq, [o]) -> let r = neg (value m o) in set_cnd m.flags r; store m r.value o
-  | _           -> failwith "step unimplemented"
+  | (Negq, [o])     -> unary neg o
+  | (Incq, [o])     -> unary succ o
+  | (Decq, [o])     -> unary pred o
+  | (Addq,  [s; d]) -> binary add s d
+  | (Subq,  [s; d]) -> binary sub s d (* NOTE: Doesn't handle overflow according to spec. *)
+  | (Imulq, [s; d]) -> binary mul s d
+  | _               -> failwith "step unimplemented"
 
 (* Runs the machine until the rip register reaches a designated
    memory address. *)
