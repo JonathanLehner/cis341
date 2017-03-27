@@ -143,6 +143,13 @@ let set_cnd (f: flags)(result: Int64_overflow.t): unit =
   f.fs <- result.value < 0L;
   f.fz <- result.value = 0L
 
+(* Set condition flags given a logical result *)
+let set_cnd_log (f: flags)(result: int64): unit =
+  let open Int64_overflow in
+  f.fo <- false;
+  f.fs <- result < 0L;
+  f.fz <- result = 0L
+
 (* Maps an X86lite address into Some OCaml array index,
    or None if the address is not within the legal address space. *)
 let map_addr (addr:quad) : int option =
@@ -200,15 +207,21 @@ let store (m: mach) (v: int64) : operand -> unit = function
 *)
 let step (m:mach) : unit =
   let open Int64_overflow in
-  let unary  f d   = (let r = f (value m d)             in set_cnd m.flags r; store m r.value d) in
-  let binary f s d = (let r = f (value m d) (value m s) in set_cnd m.flags r; store m r.value d) in
+  let unary   f d   = (let r = f (value m d)             in set_cnd m.flags r; store m r.value d) in
+  let binary  f s d = (let r = f (value m d) (value m s) in set_cnd m.flags r; store m r.value d) in
+  let lunary  f d   = (let r = f (value m d)             in set_cnd_log m.flags r; store m r d) in
+  let lbinary f s d = (let r = f (value m d) (value m s) in set_cnd_log m.flags r; store m r d) in
   match lookup_ins m with
-  | (Negq, [o])     -> unary neg o
-  | (Incq, [o])     -> unary succ o
-  | (Decq, [o])     -> unary pred o
+  | (Negq, [d])     -> unary neg d
+  | (Incq, [d])     -> unary succ d
+  | (Decq, [d])     -> unary pred d
   | (Addq,  [s; d]) -> binary add s d
   | (Subq,  [s; d]) -> binary sub s d (* NOTE: Doesn't handle overflow according to spec. *)
   | (Imulq, [s; d]) -> binary mul s d
+  | (Notq, [d])     -> lunary Int64.lognot d
+  | (Andq, [s; d])  -> lbinary Int64.logand s d
+  | (Orq,  [s; d])  -> lbinary Int64.logor  s d
+  | (Xorq, [s; d])  -> lbinary Int64.logxor s d
   | _               -> failwith "step unimplemented"
 
 (* Runs the machine until the rip register reaches a designated
