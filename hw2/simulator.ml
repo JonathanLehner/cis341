@@ -150,6 +150,21 @@ let set_cnd_log (f: flags)(result: int64): unit =
   f.fs <- result < 0L;
   f.fz <- result = 0L
 
+  (* Set condition for a shift *)
+let set_cnd_shift (f: flags)(result: int64)(dest: int64)(amt: int)(op: opcode): unit =
+  let open Int64 in
+  let top_bit    n = logand n (shift_left 1L 63) in
+  let second_bit n = logand n (shift_left 1L 62) in
+  if amt <> 0 then
+    (f.fs <- result < 0L;
+     f.fz <- result = 0L;
+     if amt = 1 then
+       match op with
+       | Sarq -> f.fo <- false
+       | Shlq -> if top_bit dest = second_bit dest then f.fo <- true
+       | Shrq -> f.fo <- top_bit dest = 1L
+       |  _   -> invalid_arg "set_cnd_shift: not a shift opcode")
+    
 (* Maps an X86lite address into Some OCaml array index,
    or None if the address is not within the legal address space. *)
 let map_addr (addr:quad) : int option =
@@ -189,6 +204,12 @@ let value (m: mach) : operand -> int64 = function
   | Ind3 (Lit i, r) -> lookup m.mem (Int64.add m.regs.(rind r) i)
   | Imm (Lbl l) | Ind1 (Lbl l) | Ind3 (Lbl l, _) -> invalid_arg "value: labels should have been resolved"
 
+(* return the value of an Imm or rcx operand as an int *)
+let shift_amount (m: mach) : operand -> int = function
+  | Imm (Lit i) -> Int64.to_int i
+  | Reg Rcx     -> Int64.to_int m.regs.(rind Rcx)
+  | _           -> invalid_arg "shift_value: invalid operand"
+
 (* store an int64 value into the location specified by an operand *)
 let store (m: mach) (v: int64) : operand -> unit = function
   | Imm (Lit i)     -> store_mem m.mem i v
@@ -197,6 +218,12 @@ let store (m: mach) (v: int64) : operand -> unit = function
   | Ind2 r          -> store_mem m.mem (lookup m.mem (m.regs.(rind r))) v
   | Ind3 (Lit i, r) -> store_mem m.mem (lookup m.mem (Int64.add m.regs.(rind r) i)) v
   | Imm (Lbl l) | Ind1 (Lbl l) | Ind3 (Lbl l, _) -> invalid_arg "value: labels should have been resolved"
+
+(* Set low byte of i to the low byte of b *)
+let set_low_byte (i: int64)(b: int64) : int64 =
+  let open Int64 in
+  let mask = sub (shift_left 1L 8) 1L in
+  logor (logand i (lognot mask)) (logand b mask)
 
 (* Simulates one step of the machine:
     - fetch the instruction at %rip
@@ -211,8 +238,12 @@ let step (m:mach) : unit =
   let binary  f s d = (let r = f (value m d) (value m s) in set_cnd m.flags r; store m r.value d) in
   let lunary  f d   = (let r = f (value m d)             in set_cnd_log m.flags r; store m r d) in
   let lbinary f s d = (let r = f (value m d) (value m s) in set_cnd_log m.flags r; store m r d) in
+  let shift   f s d o = (let a = shift_amount m s in
+                         let x = value m d in
+                         let r = f x a in
+                         set_cnd_shift m.flags r x a o; store m r d) in
   match lookup_ins m with
-  | (Negq, [d])     -> unary neg d
+  | (Negq, [d])     -> unary neg d (* NOTE: Shouldn't set flags? *)
   | (Incq, [d])     -> unary succ d
   | (Decq, [d])     -> unary pred d
   | (Addq,  [s; d]) -> binary add s d
@@ -222,6 +253,10 @@ let step (m:mach) : unit =
   | (Andq, [s; d])  -> lbinary Int64.logand s d
   | (Orq,  [s; d])  -> lbinary Int64.logor  s d
   | (Xorq, [s; d])  -> lbinary Int64.logxor s d
+  | (Sarq, [a; d])  -> shift Int64.shift_right         a d Sarq
+  | (Shlq, [a; d])  -> shift Int64.shift_left          a d Shlq
+  | (Shrq, [a; d])  -> shift Int64.shift_right_logical a d Shrq
+  | (Set c,[d])     -> store m (set_low_byte (value m d) (if interp_cnd m.flags c then 1L else 0L)) d
   | _               -> failwith "step unimplemented"
 
 (* Runs the machine until the rip register reaches a designated
