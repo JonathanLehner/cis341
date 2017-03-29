@@ -204,6 +204,13 @@ let value (m: mach) : operand -> int64 = function
   | Ind3 (Lit i, r) -> lookup m.mem (Int64.add m.regs.(rind r) i)
   | Imm (Lbl l) | Ind1 (Lbl l) | Ind3 (Lbl l, _) -> invalid_arg "value: labels should have been resolved"
 
+(* returns memory address from an ind operand *)
+let addr_ind (m: mach) : operand -> int64 = function
+  | Ind1 (Lit i)    -> i
+  | Ind2 r          -> m.regs.(rind r)
+  | Ind3 (Lit i, r) -> Int64.add m.regs.(rind r) i
+  | _               -> invalid_arg "addr_ind: argument must be Ind"
+
 (* return the value of an Imm or rcx operand as an int *)
 let shift_amount (m: mach) : operand -> int = function
   | Imm (Lit i) -> Int64.to_int i
@@ -243,20 +250,29 @@ let step (m:mach) : unit =
                          let r = f x a in
                          set_cnd_shift m.flags r x a o; store m r d) in
   match lookup_ins m with
-  | (Negq, [d])     -> unary neg d (* NOTE: Shouldn't set flags? *)
-  | (Incq, [d])     -> unary succ d
-  | (Decq, [d])     -> unary pred d
+  | (Negq,  [d])    -> unary neg d (* NOTE: Shouldn't set flags? *)
+  | (Incq,  [d])    -> unary succ d
+  | (Decq,  [d])    -> unary pred d
   | (Addq,  [s; d]) -> binary add s d
   | (Subq,  [s; d]) -> binary sub s d (* NOTE: Doesn't handle overflow according to spec. *)
   | (Imulq, [s; d]) -> binary mul s d
-  | (Notq, [d])     -> lunary Int64.lognot d
-  | (Andq, [s; d])  -> lbinary Int64.logand s d
-  | (Orq,  [s; d])  -> lbinary Int64.logor  s d
-  | (Xorq, [s; d])  -> lbinary Int64.logxor s d
-  | (Sarq, [a; d])  -> shift Int64.shift_right         a d Sarq
-  | (Shlq, [a; d])  -> shift Int64.shift_left          a d Shlq
-  | (Shrq, [a; d])  -> shift Int64.shift_right_logical a d Shrq
-  | (Set c,[d])     -> store m (set_low_byte (value m d) (if interp_cnd m.flags c then 1L else 0L)) d
+  | (Notq,  [d])    -> lunary Int64.lognot d
+  | (Andq,  [s; d]) -> lbinary Int64.logand s d
+  | (Orq,   [s; d]) -> lbinary Int64.logor  s d
+  | (Xorq,  [s; d]) -> lbinary Int64.logxor s d
+  | (Sarq,  [a; d]) -> shift Int64.shift_right         a d Sarq
+  | (Shlq,  [a; d]) -> shift Int64.shift_left          a d Shlq
+  | (Shrq,  [a; d]) -> shift Int64.shift_right_logical a d Shrq
+  | (Set c, [d])    -> store m (set_low_byte (value m d) (if interp_cnd m.flags c then 1L else 0L)) d
+  | (Leaq,  [s; d]) -> store m (addr_ind m s) d
+  | (Movq,  [s; d]) -> store m (value m s) d
+  | (Pushq, [s])    -> m.regs.(rind Rsp) <- Int64.sub m.regs.(rind Rsp) 8L; store m (value m s) (Reg Rsp)
+  | (Popq,  [d])    -> store m (value m (Reg Rsp)) d; m.regs.(rind Rsp) <- Int64.add m.regs.(rind Rsp) 8L
+  | (Cmpq,  [s; t]) -> failwith "step unimplemented"
+  | (Jmp ,  [s])    -> failwith "step unimplemented"
+  | (Callq, [s])    -> failwith "step unimplemented"
+  | (Retq,  [])     -> failwith "step unimplemented"
+  | (J c,   [s])    -> failwith "step unimplemented"
   | _               -> failwith "step unimplemented"
 
 (* Runs the machine until the rip register reaches a designated
