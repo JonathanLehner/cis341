@@ -223,7 +223,7 @@ let store (m: mach) (v: int64) : operand -> unit = function
   | Ind1 (Lit i)     -> store_mem m.mem i v
   | Ind2 r           -> store_mem m.mem (m.regs.(rind r)) v
   | Ind3 (Lit i, r)  -> store_mem m.mem (Int64.add m.regs.(rind r) i) v
-  | Imm (Lit i) as x -> invalid_arg ("store: cannot store to immediate" ^ string_of_operand x) (* NOTE: Double-check this. *)
+  | Imm (Lit i) as x -> invalid_arg ("store: cannot store to immediate" ^ string_of_operand x)
   | Imm (Lbl l) | Ind1 (Lbl l) | Ind3 (Lbl l, _) -> invalid_arg "store: labels should have been resolved"
 
 (* Set low byte of i to the low byte of b *)
