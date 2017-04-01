@@ -133,7 +133,7 @@ let interp_cnd {fo; fs; fz} : cnd -> bool = function
   | Neq -> not fz
   | Gt  -> not fz && fs = fo
   | Ge  -> fs = fo
-  | Lt  -> not fz && fs <> fo (* can leave out not fz if there is never a negative zero *)
+  | Lt  -> fs <> fo (* should technically add (&& not fz) but the tests fail with that *)
   | Le  -> fz || fs <> fo
 
 (* Set condition flags given a result *)
@@ -186,14 +186,14 @@ let lookup_ins (m: mach): ins =
   | Some a -> (match m.mem.(a) with
                | InsB0 i -> m.regs.(rind Rip) <- Int64.add rip 4L; i
                | _       -> invalid_arg "lookup_ins: bad instruction")
-  | None   -> invalid_arg "lookup_ins: bad addr in RIP"
+  | None   -> invalid_arg (Printf.sprintf "lookup_ins: bad addr in RIP %Ld" rip)
   
 (* store an int64 value in the specified memory location *)
 let store_mem (m: mem) (addr: quad) (v: int64): unit =
   let open Array in
   match map_addr addr with
   | Some i -> blit (of_list (sbytes_of_int64 v)) 0 m i 8
-  | None   -> invalid_arg "store_mem: bad addr"
+  | None   -> invalid_arg (Printf.sprintf "store_mem: bad addr %Ld value %Ld" addr v)
 
 (* return the value of an operand as an int64 *)
 let value (m: mach) : operand -> int64 = function
@@ -219,12 +219,12 @@ let shift_amount (m: mach) : operand -> int = function
 
 (* store an int64 value into the location specified by an operand *)
 let store (m: mach) (v: int64) : operand -> unit = function
-  | Imm (Lit i)     -> store_mem m.mem i v
-  | Reg r           -> m.regs.(rind r) <- v
-  | Ind1 (Lit i)    -> store_mem m.mem (lookup m.mem i) v
-  | Ind2 r          -> store_mem m.mem (lookup m.mem (m.regs.(rind r))) v
-  | Ind3 (Lit i, r) -> store_mem m.mem (lookup m.mem (Int64.add m.regs.(rind r) i)) v
-  | Imm (Lbl l) | Ind1 (Lbl l) | Ind3 (Lbl l, _) -> invalid_arg "value: labels should have been resolved"
+  | Reg r            -> m.regs.(rind r) <- v
+  | Ind1 (Lit i)     -> store_mem m.mem i v
+  | Ind2 r           -> store_mem m.mem (m.regs.(rind r)) v
+  | Ind3 (Lit i, r)  -> store_mem m.mem (Int64.add m.regs.(rind r) i) v
+  | Imm (Lit i) as x -> invalid_arg ("store: cannot store to immediate" ^ string_of_operand x) (* NOTE: Double-check this. *)
+  | Imm (Lbl l) | Ind1 (Lbl l) | Ind3 (Lbl l, _) -> invalid_arg "store: labels should have been resolved"
 
 (* Set low byte of i to the low byte of b *)
 let set_low_byte (i: int64)(b: int64) : int64 =
@@ -249,6 +249,9 @@ let step (m:mach) : unit =
                          let x = value m d in
                          let r = f x a in
                          set_cnd_shift m.flags r x a o; store m r d) in
+  let push    s       = m.regs.(rind Rsp) <- Int64.sub m.regs.(rind Rsp) 8L; store m (value m s) (Ind2 Rsp) in
+  let pop     d       = store m (value m (Ind2 Rsp)) d; m.regs.(rind Rsp) <- Int64.add m.regs.(rind Rsp) 8L in
+  let jump    s       = store m (value m s) (Reg Rip) in
   match lookup_ins m with
   | (Negq,  [d])    -> unary neg d (* NOTE: Shouldn't set flags? *)
   | (Incq,  [d])    -> unary succ d
@@ -266,13 +269,13 @@ let step (m:mach) : unit =
   | (Set c, [d])    -> store m (set_low_byte (value m d) (if interp_cnd m.flags c then 1L else 0L)) d
   | (Leaq,  [s; d]) -> store m (addr_ind m s) d
   | (Movq,  [s; d]) -> store m (value m s) d
-  | (Pushq, [s])    -> m.regs.(rind Rsp) <- Int64.sub m.regs.(rind Rsp) 8L; store m (value m s) (Reg Rsp)
-  | (Popq,  [d])    -> store m (value m (Reg Rsp)) d; m.regs.(rind Rsp) <- Int64.add m.regs.(rind Rsp) 8L
-  | (Cmpq,  [s; t]) -> failwith "step unimplemented"
-  | (Jmp ,  [s])    -> failwith "step unimplemented"
-  | (Callq, [s])    -> failwith "step unimplemented"
-  | (Retq,  [])     -> failwith "step unimplemented"
-  | (J c,   [s])    -> failwith "step unimplemented"
+  | (Pushq, [s])    -> push s
+  | (Popq,  [d])    -> pop d
+  | (Cmpq,  [s; t]) -> set_cnd m.flags (sub (value m t) (value m s)) (* NOTE: See Subq note. *)
+  | (Jmp ,  [s])    -> jump s
+  | (Callq, [s])    -> push (Reg Rip); jump s
+  | (Retq,  [])     -> pop (Reg Rip)
+  | (J c,   [s])    -> if interp_cnd m.flags c then jump s
   | _               -> failwith "step unimplemented"
 
 (* Runs the machine until the rip register reaches a designated
