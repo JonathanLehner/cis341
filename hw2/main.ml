@@ -6,10 +6,10 @@ open Simulator
 exception Ran_tests
 let worklist = ref []
 
-let suite = ref (Providedtests.provided_tests @ Gradedtests.graded_tests)
+let suite = Gradedtests.graded_tests @ Providedtests.provided_tests
 
 let exec_tests () =
-  let o = run_suite !suite in
+  let o = run_suite suite in
   Printf.printf "%s\n" (outcome_to_string o);
   raise Ran_tests
 
