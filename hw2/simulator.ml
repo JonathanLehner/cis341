@@ -52,6 +52,11 @@ type sbyte = InsB0 of ins       (* 1st byte of an instruction *)
            | InsFrag            (* 2nd, 3rd, or 4th byte of an instruction *)
            | Byte of char       (* non-instruction byte *)
 
+let string_of_sbyte: sbyte -> string = function
+  | InsB0 i -> "InsB0 " ^ string_of_ins i
+  | InsFrag -> "InsFrag"
+  | Byte c  -> "Byte " ^ (Char.escaped c)
+
 (* memory maps addresses to symbolic bytes *)
 type mem = sbyte array
 
@@ -110,8 +115,8 @@ let sbytes_of_string (s:string) : sbyte list =
 (* Serialize an instruction to sbytes *)
 let sbytes_of_ins (op, args:ins) : sbyte list =
   let check = function
-    | Imm (Lbl _) | Ind1 (Lbl _) | Ind3 (Lbl _, _) -> 
-      invalid_arg "sbytes_of_ins: tried to serialize a label!"
+    | Imm (Lbl l) | Ind1 (Lbl l) | Ind3 (Lbl l, _) -> 
+      invalid_arg ("sbytes_of_ins: tried to serialize a label!: " ^ l)
     | o -> ()
   in
   List.iter check args;
@@ -314,7 +319,57 @@ exception Redefined_sym of lbl
   HINT: List.fold_left and List.fold_right are your friends.
  *)
 let assemble (p:prog) : exec =
-failwith "assemble unimplemented"
+  let open List in
+  let open Int64 in
+  let symbol_table: (lbl, quad) Hashtbl.t = Hashtbl.create 100 in
+  let data_len: data -> int = function
+    | Asciz s -> String.length s + 1
+    | Quad  _ -> 8 in
+  let add_label (lbl: lbl) (n: quad): unit =
+    if Hashtbl.mem symbol_table lbl
+    then raise (Redefined_sym lbl)
+    else Hashtbl.add symbol_table lbl n in
+  let text_len (e: elem): quad = match e.asm with
+    | Text l -> mul (of_int (length l)) ins_size
+    | Data l -> 0L in
+  let full_text_len: quad = fold_left (fun a b -> add a (text_len b)) 0L p in
+  let text_pos: quad ref = ref mem_bot in
+  let data_pos: quad ref = ref (add mem_bot full_text_len) in
+  let elem_update (e: elem): unit = match e.asm with
+    | Text l -> add_label e.lbl !text_pos;
+                text_pos := add !text_pos (mul (of_int (length l)) ins_size)
+    | Data l -> add_label e.lbl !data_pos;
+                data_pos := add !data_pos (of_int (fold_left (fun a b -> a + data_len b) 0 l)) in
+  let patch_imm: imm -> imm = function
+    | Lit q -> Lit q
+    | Lbl l -> if Hashtbl.mem symbol_table l
+               then Lit (Hashtbl.find symbol_table l)
+               else raise (Undefined_sym l) in
+  let patch_op: operand -> operand = function
+    | Imm  i      -> Imm (patch_imm i)
+    | Ind1 i      -> Ind1 (patch_imm i)
+    | Ind3 (i, r) -> Ind3 (patch_imm i, r)
+    | op      -> op in
+  let patch_ins (code, ops: ins): ins =
+    (code, map patch_op ops) in
+  let patch_data: data -> data = function
+    | Asciz s -> Asciz s
+    | Quad imm -> Quad (patch_imm imm) in
+  let patch: asm -> asm = function
+    | Text l -> Text (map patch_ins l)
+    | Data l -> Data (map patch_data l) in
+  let base_exec: exec = 
+    iter elem_update p; (* set up sizes and labels as a side-effect *)
+    { entry = if Hashtbl.mem symbol_table "main" then Hashtbl.find symbol_table "main" else raise (Undefined_sym "main")
+    ; text_pos = mem_bot
+    ; data_pos = add mem_bot full_text_len
+    ; text_seg = []
+    ; data_seg = []
+    } in
+  let step (a: asm)(e: exec): exec = match (patch a) with
+    | Text l -> {e with text_seg = (concat (map sbytes_of_ins l))  @ e.text_seg}
+    | Data l -> {e with data_seg = (concat (map sbytes_of_data l)) @ e.data_seg} in
+  fold_right step (map (fun x -> x.asm) p) base_exec
 
 (* Convert an object file into an executable machine state. 
     - allocate the mem array
@@ -329,5 +384,17 @@ failwith "assemble unimplemented"
   Hint: The Array.make, Array.blit, and Array.of_list library functions 
   may be of use.
 *)
-let load {entry; text_pos; data_pos; text_seg; data_seg} : mach = 
-failwith "load unimplemented"
+let load {entry; text_pos; data_pos; text_seg; data_seg} : mach =
+  let open Array in
+  let open Int64 in
+  let mem: mem = make mem_size (Byte '\x00') in
+  let text_arr = of_list text_seg in
+  let data_arr = of_list data_seg in
+  blit text_arr 0 mem (to_int (sub text_pos mem_bot)) (length text_arr);
+  blit data_arr 0 mem (to_int (sub data_pos mem_bot)) (length data_arr);
+  blit (of_list (sbytes_of_int64 exit_addr)) 0 mem (mem_size - 8) 8;
+  let flags: flags = {fo = false; fs = false; fz = false} in
+  let regs: regs = make 17 0L in
+  regs.(rind Rip) <- entry;
+  regs.(rind Rsp) <- sub mem_top 8L;
+  {flags; regs; mem}
