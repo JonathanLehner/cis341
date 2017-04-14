@@ -22,12 +22,12 @@ let gcd a b =
          ; Andq,  [~%Rax; ~%Rsi]  (* 1 if a is odd *)
          ; Movq,  [~$1; ~%Rdi]
          ; Andq,  [~%Rbx; ~%Rdi]  (* 1 if b is odd *)
-         ; Orq,   [~%Rsi; ~%Rdi] (* 1 if a is odd or b is odd *)
+         ; Orq,   [~%Rsi; ~%Rdi]  (* 1 if a is odd or b is odd *)
          ; Cmpq,  [~$1; ~%Rdi]
          ; J Eq,  [~$$"loop2"]
          ; Sarq,  [~$1; ~%Rax]
          ; Sarq,  [~$1; ~%Rbx]
-         ; Decq,  [~%Rcx]
+         ; Incq,  [~%Rcx]
          ; Jmp,   [~$$"loop1"]
          ]
   ; text "loop2"
@@ -41,7 +41,7 @@ let gcd a b =
          ; Andq,  [~%Rbx; ~%Rsi]  (* 1 if b is odd; 0 if even *)
          ; Cmpq,  [~$0; ~%Rsi]
          ; J Eq,  [~$$"b even"]
-         ; Cmpq,  [~%Rax; ~%Rbx]
+         ; Cmpq,  [~%Rbx; ~%Rax]  (* test a ? b *)
          ; J Gt,  [~$$"a > b"]
          ; Jmp,   [~$$"b > a"]
          ]
@@ -76,6 +76,10 @@ let provided_tests : suite = [
        ]);
  
   Test ("GCD", [
-          ("gcd", program_test (gcd 2 3) 1L);
+          ("gcd 2 3", program_test (gcd 2 3) 1L);
+          ("gcd 1 3", program_test (gcd 1 3) 1L);
+          ("gcd 2 1", program_test (gcd 2 1) 1L);
+          ("gcd 12 18", program_test (gcd 12 18) 6L);
+          ("gcd 20 20", program_test (gcd 20 20) 20L);
        ]);
 ] 
